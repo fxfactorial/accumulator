@@ -4,9 +4,12 @@ import (
 	"fmt"
 
 	"github.com/fxfactorial/accumulator"
+	"github.com/fxfactorial/accumulator/group"
 )
 
+// Te
 func main() {
-
-	fmt.Println("hi", accumulator.T())
+	accumSet := []interface{}{}
+	accum := accumulator.New(group.RSA2048)
+	fmt.Println(accumSet, accum)
 }
