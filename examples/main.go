@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"math/big"
 	"time"
@@ -29,29 +30,63 @@ type utxo struct {
 
 type set []utxo
 
-func (utxo set) hashToPrimeBlake2b(record utxo) uint64 {
-	var counter uint64 = 0
-	payload, _ := record.id.MarshalBinary()
+func toStringInt(b *big.Int) string {
+	return hex.EncodeToString(b.Bytes())
+}
 
+func toStringBuffer(b *bytes.Buffer) string {
+	return hex.EncodeToString(b.Bytes())
+}
+
+func (utxo set) hashToPrimeBlake2b(record utxo) uint64 {
+	payload, _ := record.id.MarshalBinary()
 	utxoBytes := bytes.NewBuffer(payload)
 	binary.PutUvarint(utxoBytes.Bytes(), record.userID)
+	jobChan := make(chan struct{}, 32)
+	counterChan := make(chan uint64)
+	foundChan := make(chan *big.Int)
+
+	go func() {
+		jobChan <- struct{}{}
+		counterChan <- 0
+	}()
 
 	// Keep going till you find it
 	for {
-		payload := bytes.NewBuffer(utxoBytes.Bytes())
-		binary.PutUvarint(payload.Bytes(), counter)
-		utxoHash := h.New(h.Blake2B, payload.Bytes())
-		writeOut := bytes.Buffer{}
-		utxoHash.Write(writeOut.Bytes())
-		// Make candidate prime odd
-		binary.PutUvarint(writeOut.Bytes()[:1], 1)
-		candidatePrime := new(big.Int).SetBytes(writeOut.Bytes())
-		if primality.IsProbPrime(candidatePrime) {
-			return candidatePrime.Uint64()
+		_, ok := <-jobChan
+
+		if !ok {
+			break
 		}
-		counter++
+
+		go func() {
+			counterNow := <-counterChan
+			b := make([]byte, 8)
+			binary.LittleEndian.PutUint64(b, counterNow)
+			blakeHasher := h.New(h.Blake2B, nil)
+			blakeHasher.Write(payload)
+			blakeHasher.Write(b)
+			dump := blakeHasher.Sum(nil)
+			copy(dump[:1], []byte{1})
+			candidate := new(big.Int).SetBytes(dump)
+
+			defer func() {
+				if primality.IsProbPrime(candidate) {
+					close(jobChan)
+					close(counterChan)
+					foundChan <- candidate
+				} else {
+					jobChan <- struct{}{}
+					counterChan <- counterNow + 1
+				}
+			}()
+
+		}()
 	}
 
+	found := <-foundChan
+	fmt.Println("found at-", found)
+	return found.Uint64()
 }
 
 func (utxo set) primeHashProduct() uint64 {
