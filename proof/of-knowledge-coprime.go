@@ -1,5 +1,8 @@
 package proof
 
+type Membership interface {
+}
+
 type CoprimeProver interface {
 	Prove()
 }
